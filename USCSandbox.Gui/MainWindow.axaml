@@ -1,0 +1,194 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:USCSandbox.Gui"
+        x:Class="USCSandbox.Gui.MainWindow"
+        Title="Unity Shader Decompiler"
+        Width="1020" Height="740"
+        MinWidth="820" MinHeight="600"
+        DragDrop.AllowDrop="True"
+        Background="#16171A">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.h1">
+      <Setter Property="FontSize" Value="20" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="#F2F3F5" />
+    </Style>
+
+    <Style Selector="TextBlock.sub">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="#8B909A" />
+    </Style>
+
+    <Style Selector="TextBlock.section">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="#8B909A" />
+      <Setter Property="Margin" Value="0,0,0,6" />
+    </Style>
+
+    <Style Selector="TextBlock.field">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="#A8ADB6" />
+      <Setter Property="Margin" Value="0,0,0,4" />
+    </Style>
+
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="#1C1E22" />
+      <Setter Property="BorderBrush" Value="#2A2D33" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="12" />
+    </Style>
+
+    <Style Selector="Button.accent">
+      <Setter Property="Background" Value="#3D6FF5" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Padding" Value="18,8" />
+      <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#5480FF" />
+    </Style>
+    <Style Selector="Button.accent:disabled /template/ ContentPresenter">
+      <Setter Property="Background" Value="#2A2D33" />
+      <Setter Property="TextBlock.Foreground" Value="#6A6F78" />
+    </Style>
+
+    <Style Selector="Button.ghost">
+      <Setter Property="Background" Value="#23262B" />
+      <Setter Property="Foreground" Value="#D6D8DD" />
+      <Setter Property="Padding" Value="12,7" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="BorderBrush" Value="#2F333A" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <Style Selector="ListBox#LogList ListBoxItem">
+      <Setter Property="Padding" Value="8,1" />
+      <Setter Property="MinHeight" Value="0" />
+    </Style>
+
+    <Style Selector="ListBox#InputList ListBoxItem">
+      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="MinHeight" Value="0" />
+    </Style>
+  </Window.Styles>
+
+  <Grid Margin="18" RowDefinitions="Auto,Auto,*,Auto,Auto">
+
+    <!-- header -->
+    <StackPanel Grid.Row="0" Margin="0,0,0,14">
+      <TextBlock Classes="h1" Text="Unity Shader Decompiler" />
+      <TextBlock Classes="sub" Margin="0,3,0,0"
+                 Text="Drop an asset bundle, an assets file, or a whole folder. Decompiled ShaderLab is written next to the app." />
+    </StackPanel>
+
+    <!-- drop zone -->
+    <Grid Grid.Row="1" Name="DropZone" Height="128" Margin="0,0,0,14" Cursor="Hand">
+      <Rectangle Name="DropZoneOutline" Margin="1"
+                 RadiusX="10" RadiusY="10"
+                 Fill="#1A1C20" Stroke="#343841"
+                 StrokeThickness="2" StrokeDashArray="6,4" />
+      <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="4">
+        <TextBlock Name="DropZoneTitle"
+                   Text="Drop bundles here"
+                   FontSize="16" FontWeight="SemiBold"
+                   Foreground="#D6D8DD" HorizontalAlignment="Center" />
+        <TextBlock Name="DropZoneHint"
+                   Text="or click to pick files &#x2022; folders are scanned recursively"
+                   Classes="sub" HorizontalAlignment="Center" />
+      </StackPanel>
+    </Grid>
+
+    <!-- queue + log -->
+    <Grid Grid.Row="2" ColumnDefinitions="300,14,*" Margin="0,0,0,14">
+
+      <Border Grid.Column="0" Classes="card">
+        <Grid RowDefinitions="Auto,*,Auto">
+          <TextBlock Grid.Row="0" Name="QueueHeader" Classes="section" Text="DROPPED (0)" />
+          <ListBox Grid.Row="1" Name="InputList" Background="Transparent"
+                   BorderThickness="0" SelectionMode="Multiple">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="local:InputEntry">
+                <StackPanel>
+                  <TextBlock Text="{Binding Display}" Foreground="#D6D8DD" FontSize="12"
+                             TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{Binding Kind}" Foreground="#7A7F88" FontSize="10" />
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6" Margin="0,10,0,0">
+            <Button Name="AddFilesButton" Classes="ghost" Content="Add files" />
+            <Button Name="AddFolderButton" Classes="ghost" Content="Add folder" />
+            <Button Name="ClearButton" Classes="ghost" Content="Clear" />
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Border Grid.Column="2" Classes="card">
+        <Grid RowDefinitions="Auto,*">
+          <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0" Classes="section" Text="LOG" VerticalAlignment="Center" />
+            <Button Grid.Column="1" Name="CopyLogButton" Classes="ghost" Content="Copy"
+                    Padding="10,3" FontSize="11" Margin="0,0,0,6" />
+          </Grid>
+          <ListBox Grid.Row="1" Name="LogList" Background="Transparent" BorderThickness="0"
+                   SelectionMode="Single"
+                   ScrollViewer.HorizontalScrollBarVisibility="Auto">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="local:LogEntry">
+                <TextBlock Text="{Binding Text}" Foreground="{Binding Foreground}"
+                           FontFamily="{StaticResource MonoFont}" FontSize="12" />
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <!-- options -->
+    <Border Grid.Row="3" Classes="card" Margin="0,0,0,14">
+      <Grid ColumnDefinitions="185,12,170,12,*,12,Auto" RowDefinitions="Auto,Auto">
+        <StackPanel Grid.Row="0" Grid.Column="0">
+          <TextBlock Classes="field" Text="Platform" />
+          <ComboBox Name="PlatformBox" HorizontalAlignment="Stretch" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="0" Grid.Column="2">
+          <TextBlock Classes="field" Text="Unity version override" />
+          <TextBox Name="VersionBox" Watermark="e.g. 2021.3.16f1" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="0" Grid.Column="4">
+          <TextBlock Classes="field" Text="Output folder" />
+          <TextBox Name="OutputBox" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="0" Grid.Column="6" VerticalAlignment="Bottom" Orientation="Horizontal" Spacing="6">
+          <Button Name="BrowseOutputButton" Classes="ghost" Content="Browse" />
+          <Button Name="OpenOutputButton" Classes="ghost" Content="Open" />
+        </StackPanel>
+
+        <CheckBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="7" Name="GroupBySourceCheck"
+                  Margin="0,10,0,0" Foreground="#A8ADB6" FontSize="12"
+                  Content="Put each source file's shaders in its own subfolder" />
+      </Grid>
+    </Border>
+
+    <!-- actions -->
+    <Grid Grid.Row="4" ColumnDefinitions="*,Auto">
+      <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="6" Margin="0,0,16,0">
+        <TextBlock Name="StatusText" Classes="sub" Text="Waiting for files." />
+        <ProgressBar Name="RunProgress" Height="4" Minimum="0" Maximum="1" Value="0"
+                     Foreground="#3D6FF5" Background="#23262B" CornerRadius="2" />
+      </StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+        <Button Name="CancelButton" Classes="ghost" Content="Cancel" IsEnabled="False" />
+        <Button Name="RunButton" Classes="accent" Content="Decompile" IsEnabled="False" />
+      </StackPanel>
+    </Grid>
+  </Grid>
+</Window>

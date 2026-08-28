@@ -1,7 +1,6 @@
-﻿using AssetsTools.NET;
+using AssetsTools.NET;
 using AssetsTools.NET.Extra;
 using USCSandbox.Common;
-using USCSandbox.Metadata;
 using USCSandbox.Processor;
 using UnityVersion = AssetRipper.Primitives.UnityVersion;
 
@@ -55,6 +54,8 @@ internal class Program
         {
             Console.WriteLine("=== USCS Shader Exporter ===");
             Console.WriteLine();
+            Console.WriteLine("Tip: run USCSandbox.Gui to drag and drop bundles instead.");
+            Console.WriteLine();
 
             Console.Write("Enter the path to the folder containing asset bundles: ");
             batchDir = Console.ReadLine()?.Trim().Trim('"');
@@ -82,14 +83,14 @@ internal class Program
             }
 
             Console.WriteLine();
-            ExportAllFromDirectory(batchDir, outDir, platform, ver);
+            ExportAllFromPath(batchDir, outDir, platform, ver);
             WaitForExit();
             return;
         }
 
         if (batchDir != null)
         {
-            ExportAllFromDirectory(batchDir, outDir, platform, ver);
+            ExportAllFromPath(batchDir, outDir, platform, ver);
             return;
         }
 
@@ -101,10 +102,11 @@ internal class Program
             Console.WriteLine("  [shader path id (or --all to load all shaders)]");
             Console.WriteLine("  --platform <[d3d11, Switch] (or skip this arg for d3d11)>");
             Console.WriteLine("  --version <unity version override>");
-            Console.WriteLine("  --dir <directory> : export all shaders from all asset bundles in a directory");
+            Console.WriteLine("  --dir <directory or file> : export all shaders from all asset bundles found");
             Console.WriteLine("  --out <directory> : output directory for exported shaders (default: ./Shaders)");
             Console.WriteLine();
             Console.WriteLine("Or just run the exe with no arguments for interactive mode.");
+            Console.WriteLine("Or run USCSandbox.Gui to drag and drop a bundle onto a window.");
             return;
         }
 
@@ -135,7 +137,7 @@ internal class Program
                 var bundleFile = manager.LoadBundleFile(bundlePath, true);
                 afileInst = manager.LoadAssetsFileFromBundle(bundleFile, assetsFileName);
 
-                manager.LoadClassPackage("classdata.tpk");
+                manager.LoadClassPackage(ShaderExporter.ClassDataPackagePath());
                 manager.LoadClassDatabaseFromPackage(bundleFile.file.Header.EngineVersion);
 
                 Console.WriteLine("Available shaders in bundle:");
@@ -144,7 +146,7 @@ internal class Program
             {
                 afileInst = manager.LoadAssetsFile(assetsFileName);
 
-                manager.LoadClassPackage("classdata.tpk");
+                manager.LoadClassPackage(ShaderExporter.ClassDataPackagePath());
                 manager.LoadClassDatabaseFromPackage(afileInst.file.Metadata.UnityVersion);
 
                 Console.WriteLine("Available shaders in assets file:");
@@ -163,35 +165,18 @@ internal class Program
         if (argList.Count > 2)
             shaderPathId = long.Parse(argList[2]);
 
-        Dictionary<long, string> files = [];
         if (bundlePath != "null")
         {
             var bundleFile = manager.LoadBundleFile(bundlePath, true);
             afileInst = manager.LoadAssetsFileFromBundle(bundleFile, assetsFileName);
 
-            if (ver is null)
-            {
-                var verStr = bundleFile.file.Header.EngineVersion;
-                if (verStr != "0.0.0")
-                {
-                    var fixedVerStr = new AssetsTools.NET.Extra.UnityVersion(verStr).ToString();
-                    ver = UnityVersion.Parse(fixedVerStr);
-                }
-            }
+            ver ??= ShaderExporter.ParseVersion(bundleFile.file.Header.EngineVersion);
         }
         else
         {
             afileInst = manager.LoadAssetsFile(assetsFileName);
 
-            if (ver is null)
-            {
-                var verStr = afileInst.file.Metadata.UnityVersion;
-                if (verStr != "0.0.0")
-                {
-                    var fixedVerStr = new AssetsTools.NET.Extra.UnityVersion(verStr).ToString();
-                    ver = UnityVersion.Parse(fixedVerStr);
-                }
-            }
+            ver ??= ShaderExporter.ParseVersion(afileInst.file.Metadata.UnityVersion);
         }
 
         if (ver is null)
@@ -200,7 +185,7 @@ internal class Program
             return;
         }
 
-        manager.LoadClassPackage("classdata.tpk");
+        manager.LoadClassPackage(ShaderExporter.ClassDataPackagePath());
         manager.LoadClassDatabaseFromPackage(ver.ToString());
 
         var shadersToLoad = new List<AssetFileInfo>();
@@ -228,249 +213,26 @@ internal class Program
         }
     }
 
-    static void ExportAllFromDirectory(string directory, string outDir, GPUPlatform platform, UnityVersion? versionOverride)
+    static void ExportAllFromPath(string path, string outDir, GPUPlatform platform, UnityVersion? versionOverride)
     {
-        if (!Directory.Exists(directory))
+        if (!Directory.Exists(path) && !File.Exists(path))
         {
-            Console.WriteLine($"Directory not found: {directory}");
+            Console.WriteLine($"Path not found: {path}");
             return;
         }
 
-        var files = Directory.GetFiles(directory, "*", SearchOption.AllDirectories);
-        int totalShaders = 0;
-        int totalFiles = 0;
-        int failedShaders = 0;
+        Console.WriteLine($"Scanning: {path}");
 
-        Console.WriteLine($"Scanning directory: {directory}");
-        Console.WriteLine($"Output directory: {outDir}");
-        Console.WriteLine();
-
-        foreach (var filePath in files)
-        {
-            if (filePath.EndsWith(".resource", StringComparison.OrdinalIgnoreCase) ||
-                filePath.EndsWith(".resS", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var fileName = Path.GetFileName(filePath);
-            var fileType = DetectFileType(filePath);
-
-            if (fileType == UnityFileType.Bundle)
+        var exporter = new ShaderExporter(
+            new ShaderExportOptions
             {
-                var manager = new AssetsManager();
-                BundleFileInstance bundleFile;
-                try
-                {
-                    bundleFile = manager.LoadBundleFile(filePath, true);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"  Skipping {fileName}: failed to load bundle ({ex.Message})");
-                    continue;
-                }
+                Platform = platform,
+                VersionOverride = versionOverride,
+                OutputDirectory = outDir
+            },
+            Console.WriteLine);
 
-                var dirInfs = bundleFile.file.BlockAndDirInfo.DirectoryInfos;
-
-                foreach (var dirInf in dirInfs)
-                {
-                    if ((dirInf.Flags & 4) == 0)
-                        continue;
-
-                    AssetsFileInstance afileInst;
-                    try
-                    {
-                        afileInst = manager.LoadAssetsFileFromBundle(bundleFile, dirInf.Name);
-                    }
-                    catch
-                    {
-                        continue;
-                    }
-
-                    UnityVersion? ver = versionOverride;
-                    if (ver is null)
-                    {
-                        var verStr = bundleFile.file.Header.EngineVersion;
-                        if (verStr != "0.0.0")
-                        {
-                            try
-                            {
-                                var fixedVerStr = new AssetsTools.NET.Extra.UnityVersion(verStr).ToString();
-                                ver = UnityVersion.Parse(fixedVerStr);
-                            }
-                            catch { continue; }
-                        }
-                    }
-
-                    if (ver is null)
-                    {
-                        Console.WriteLine($"  Skipping {fileName}/{dirInf.Name}: version stripped (use --version)");
-                        continue;
-                    }
-
-                    int count = ExportShadersFromAssetsFile(manager, afileInst, ver.Value, platform, outDir, fileName, ref failedShaders);
-                    if (count > 0)
-                    {
-                        totalFiles++;
-                        totalShaders += count;
-                    }
-                }
-
-                manager.UnloadAll();
-            }
-            else if (fileType == UnityFileType.Assets)
-            {
-                var manager = new AssetsManager();
-                AssetsFileInstance afileInst;
-                try
-                {
-                    afileInst = manager.LoadAssetsFile(filePath);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                UnityVersion? ver = versionOverride;
-                if (ver is null)
-                {
-                    try
-                    {
-                        var verStr = afileInst.file.Metadata.UnityVersion;
-                        if (verStr != "0.0.0" && !string.IsNullOrEmpty(verStr))
-                        {
-                            var fixedVerStr = new AssetsTools.NET.Extra.UnityVersion(verStr).ToString();
-                            ver = UnityVersion.Parse(fixedVerStr);
-                        }
-                    }
-                    catch { }
-                }
-
-                if (ver is null)
-                {
-                    ver = TryGetVersionFromDirectory(directory, versionOverride);
-                }
-
-                if (ver is null)
-                {
-                    continue;
-                }
-
-                int count = ExportShadersFromAssetsFile(manager, afileInst, ver.Value, platform, outDir, fileName, ref failedShaders);
-                if (count > 0)
-                {
-                    totalFiles++;
-                    totalShaders += count;
-                }
-
-                manager.UnloadAll();
-            }
-        }
-
-        Console.WriteLine();
-        Console.WriteLine($"Done. Exported {totalShaders} shader(s) from {totalFiles} file(s) to {outDir}");
-        if (failedShaders > 0)
-            Console.WriteLine($"  ({failedShaders} shader(s) failed)");
-    }
-
-    static int ExportShadersFromAssetsFile(AssetsManager manager, AssetsFileInstance afileInst, UnityVersion ver, GPUPlatform platform, string outDir, string sourceName, ref int failedShaders)
-    {
-        try
-        {
-            manager.LoadClassPackage("classdata.tpk");
-            manager.LoadClassDatabaseFromPackage(ver.ToString());
-        }
-        catch
-        {
-            return 0;
-        }
-
-        IEnumerable<AssetFileInfo> shaderAssets;
-        try
-        {
-            shaderAssets = afileInst.file.GetAssetsOfType(AssetClassID.Shader);
-            if (!shaderAssets.Any())
-                return 0;
-        }
-        catch
-        {
-            return 0;
-        }
-
-        int count = shaderAssets.Count();
-        Console.WriteLine($"[{sourceName}] Found {count} shader(s)");
-
-        int exported = 0;
-        foreach (var shaderInf in shaderAssets)
-        {
-            try
-            {
-                var shaderBf = manager.GetBaseField(afileInst, shaderInf);
-                if (shaderBf == null)
-                    continue;
-
-                var shaderName = shaderBf["m_ParsedForm"]["m_Name"].AsString;
-
-                var actualPlatform = platform;
-                var shaderPlatforms = shaderBf["platforms.Array"]
-                    .Select(i => (GPUPlatform)i.AsInt).ToList();
-
-                if (!shaderPlatforms.Contains(platform) && shaderPlatforms.Count > 0)
-                {
-                    GPUPlatform[] preferred = [GPUPlatform.gles3, GPUPlatform.vulkan, GPUPlatform.d3d11, GPUPlatform.Switch, GPUPlatform.metal];
-                    actualPlatform = preferred.FirstOrDefault(p => shaderPlatforms.Contains(p), shaderPlatforms[0]);
-                }
-
-                var shaderTextWriter = new ShaderTextWriter(shaderBf, ver);
-                var output = shaderTextWriter.LoadAndWrite(actualPlatform);
-
-                var safeName = SanitizeFileName(shaderName);
-                var shaderOutDir = Path.Combine(outDir, Path.GetDirectoryName(safeName) ?? "");
-                Directory.CreateDirectory(shaderOutDir);
-
-                var shaderOutPath = Path.Combine(outDir, safeName + ".shader");
-                File.WriteAllText(shaderOutPath, output);
-
-                exported++;
-                Console.WriteLine($"  Exported: {shaderName}");
-            }
-            catch (Exception ex)
-            {
-                failedShaders++;
-                Console.WriteLine($"  Failed to export shader (path id {shaderInf.PathId}): {ex.Message}");
-            }
-        }
-
-        return exported;
-    }
-
-    static UnityVersion? TryGetVersionFromDirectory(string directory, UnityVersion? versionOverride)
-    {
-        if (versionOverride != null)
-            return versionOverride;
-
-        var ggmPath = Path.Combine(directory, "globalgamemanagers");
-        string[] candidates = File.Exists(ggmPath)
-            ? [ggmPath, ..Directory.GetFiles(directory, "*.assets")]
-            : Directory.GetFiles(directory, "*.assets");
-
-        foreach (var candidate in candidates)
-        {
-            try
-            {
-                var tmpManager = new AssetsManager();
-                var tmpInst = tmpManager.LoadAssetsFile(candidate);
-                var verStr = tmpInst.file.Metadata.UnityVersion;
-                tmpManager.UnloadAll();
-
-                if (verStr != "0.0.0" && !string.IsNullOrEmpty(verStr))
-                {
-                    var fixedVerStr = new AssetsTools.NET.Extra.UnityVersion(verStr).ToString();
-                    return UnityVersion.Parse(fixedVerStr);
-                }
-            }
-            catch { }
-        }
-
-        return null;
+        exporter.Export([path]);
     }
 
     static void WaitForExit()
@@ -478,56 +240,5 @@ internal class Program
         Console.WriteLine();
         Console.WriteLine("Press any key to exit...");
         Console.ReadKey(true);
-    }
-
-    enum UnityFileType { Unknown, Bundle, Assets }
-
-    static UnityFileType DetectFileType(string filePath)
-    {
-        try
-        {
-            using var fs = File.OpenRead(filePath);
-            if (fs.Length < 16)
-                return UnityFileType.Unknown;
-
-            var buf = new byte[16];
-            fs.Read(buf, 0, 16);
-            var sig = System.Text.Encoding.ASCII.GetString(buf, 0, 8);
-
-            if (sig.StartsWith("UnityFS") || sig.StartsWith("UnityWeb") || sig.StartsWith("UnityRaw"))
-                return UnityFileType.Bundle;
-
-            int version = (buf[4] << 24) | (buf[5] << 16) | (buf[6] << 8) | buf[7];
-            if (version >= 9 && version <= 50)
-            {
-                return UnityFileType.Assets;
-            }
-
-            var ext = Path.GetExtension(filePath).ToLowerInvariant();
-            if (ext == ".assets")
-                return UnityFileType.Assets;
-
-            var name = Path.GetFileName(filePath);
-            if (name.Length >= 32 && !name.Contains('.') && name.All(c => "0123456789abcdef".Contains(c)))
-                return UnityFileType.Assets;
-
-            return UnityFileType.Unknown;
-        }
-        catch
-        {
-            return UnityFileType.Unknown;
-        }
-    }
-
-    static string SanitizeFileName(string name)
-    {
-        var invalid = Path.GetInvalidFileNameChars();
-        var parts = name.Split('/');
-        for (int i = 0; i < parts.Length; i++)
-        {
-            foreach (var c in invalid)
-                parts[i] = parts[i].Replace(c, '_');
-        }
-        return Path.Combine(parts);
     }
 }

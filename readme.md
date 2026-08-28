@@ -20,8 +20,24 @@ Supported shader backends:
 
 ## How to use
 
-### Interactive mode (recommended)
-Just run the executable by double-clicking it or launching it from a terminal with no arguments. You will be prompted to enter the path to a folder containing asset bundles, then choose a platform. The tool will scan the entire directory recursively, decompile every shader found, and write the results to a `Shaders/` folder next to the executable.
+There are two builds. `USCSandbox.Gui` is the drag and drop window, `USCSandbox` is the console tool. Both do exactly the same work, they just share the same exporter.
+
+### GUI (recommended)
+
+Run `USCSandbox.Gui`. Drag an asset bundle, an `.assets` file, or a whole folder onto the window (or click the drop zone to pick files) and press **Decompile**. Folders are scanned recursively.
+
+- **Platform** - which GPU backend to pull out of each shader. `Auto` picks the best one actually present in the shader, falling back in the order gles3, vulkan, d3d11, Switch, metal.
+- **Unity version override** - needed only when the bundle has a stripped version string, e.g. `2021.3.16f1`.
+- **Output folder** - defaults to `Shaders/` next to the exe. `Open` opens it in your file browser.
+- **Put each source file's shaders in its own subfolder** - turn this on when you drop several bundles that contain shaders with the same name, otherwise the later one wins.
+
+The log pane shows every shader as it is written, and warnings for anything skipped. `Cancel` stops after the shader currently being written.
+
+The GUI is Avalonia, so it runs on Windows, Linux and macOS.
+
+### Interactive console mode
+
+Run `USCSandbox` by double-clicking it or launching it from a terminal with no arguments. You will be prompted to enter the path to a folder containing asset bundles, then choose a platform. The tool will scan the entire directory recursively, decompile every shader found, and write the results to a `Shaders/` folder next to the executable.
 
 ### Command line
 ```
@@ -35,12 +51,24 @@ USCSandbox.exe --dir <bundle directory> [--out <output directory>] [--platform <
 - `--all` - decompile all shaders instead of a single one
 - `--platform` - target GPU platform: `d3d11`, `gles3`, `vulkan`, `Switch` (default: `gles3` in interactive, `d3d11` in CLI)
 - `--version` - override the Unity version (required if the bundle has a stripped version)
-- `--dir` - recursively scan a directory and decompile all shaders from all asset bundles found
+- `--dir` - path to scan. A directory is walked recursively, a single bundle or assets file also works
 - `--out` - output directory for exported shaders (default: `./Shaders`)
+
+## Building
+
+```
+dotnet build -c Release
+```
+
+That builds both projects. The binaries land in `USCSandbox/bin/Release/net8.0` and `USCSandbox.Gui/bin/Release/net8.0`.
+
+Every push also builds Debug and Release for Windows, Linux and macOS on GitHub Actions, so you can grab a build from the Actions tab instead of compiling it yourself.
 
 ## How it works
 
 A Unity shader asset has two major parts: serialized metadata (the `m_ParsedForm` field) and the compiled shader blob (`compressedBlob`). The metadata describes shader properties, passes, subshaders, render state, and constant buffer layouts. The blob contains the platform-specific compiled shader code.
+
+`ShaderExporter` walks whatever you point it at, works out the Unity version, and hands each shader asset to `ShaderTextWriter`. Both the GUI and the console tool go through it, so they behave identically.
 
 The decompiler pairs up metadata and blob data into "shader baskets", then converts the platform bytecode into USIL (Ultra Shader Intermediate Language) using a per-platform converter (`DirectXProgramToUSIL`, `NvnProgramToUSIL`, etc.). USIL is then processed in three passes:
 
