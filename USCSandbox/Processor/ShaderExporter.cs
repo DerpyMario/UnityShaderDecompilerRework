@@ -362,7 +362,7 @@ public class ShaderExporter
             catch (Exception ex)
             {
                 _failed++;
-                _log?.Invoke($"  Failed to export shader (path id {shaderInf.PathId}): {ex.Message}");
+                _log?.Invoke($"  Failed to export shader (path id {shaderInf.PathId}): {ex}");
             }
         }
 

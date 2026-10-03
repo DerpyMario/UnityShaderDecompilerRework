@@ -228,7 +228,8 @@ internal class Program
             {
                 Platform = platform,
                 VersionOverride = versionOverride,
-                OutputDirectory = outDir
+                OutputDirectory = outDir,
+                GroupBySourceFile = true
             },
             Console.WriteLine);
 

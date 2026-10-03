@@ -15,8 +15,13 @@ public class SerializedShader
     public string FallbackName;
     public List<string> KeywordNames;
     public List<GPUPlatform> Platforms;
-    public List<uint> Offsets;
-    public List<(uint, uint)> CompDecompLengths;
+    // Pre-6000 files: one list with one entry per platform (each platform is a single LZ4
+    // segment sharing one global entry table that lives in segment 0). Unity 6000+ stores
+    // these fields as arrays of arrays: one inner list per platform, each platform carrying
+    // its own entry table in its first segment.
+    public List<List<uint>> Offsets;
+    public List<List<(uint, uint)>> CompDecompLengths;
+    public readonly bool PlatformSegments;
     public byte[] CompressedBlob;
     public List<SerializedSubShader> SubShaders;
 
@@ -38,16 +43,32 @@ public class SerializedShader
         Platforms = shaderBf["platforms.Array"]
             .Select(i => (GPUPlatform)i.AsInt).ToList();
 
-        Offsets = SerializedMetadataHelpers.GetArrayFirstValue(shaderBf["offsets.Array"])
-            .Select(o => o.AsUInt).ToList();
+        var offsetGroups = SerializedMetadataHelpers.GetArrayGroups(shaderBf["offsets.Array"]);
+        var compressedGroups = SerializedMetadataHelpers.GetArrayGroups(shaderBf["compressedLengths.Array"]);
+        var decompressedGroups = SerializedMetadataHelpers.GetArrayGroups(shaderBf["decompressedLengths.Array"]);
 
-        var compressedLengths = SerializedMetadataHelpers.GetArrayFirstValue(shaderBf["compressedLengths.Array"]);
-        var decompressedLengths = SerializedMetadataHelpers.GetArrayFirstValue(shaderBf["decompressedLengths.Array"]);
-        CompDecompLengths = compressedLengths.Zip(decompressedLengths)
-            .Select(p => (
-                p.First.AsUInt,
-                p.Second.AsUInt
-            )).ToList();
+        List<uint> ReadFlat(AssetTypeValueField field)
+            => SerializedMetadataHelpers.GetArrayFirstValue(field)
+                .Select(o => o.AsUInt).ToList();
+
+        if (offsetGroups != null && compressedGroups != null && decompressedGroups != null)
+        {
+            PlatformSegments = true;
+            Offsets = offsetGroups
+                .Select(g => g.Select(o => o.AsUInt).ToList()).ToList();
+            CompDecompLengths = compressedGroups.Zip(decompressedGroups)
+                .Select(p => p.First.Zip(p.Second)
+                    .Select(c => (c.First.AsUInt, c.Second.AsUInt)).ToList())
+                .ToList();
+        }
+        else
+        {
+            PlatformSegments = false;
+            Offsets = [ReadFlat(shaderBf["offsets.Array"])];
+            CompDecompLengths = [ReadFlat(shaderBf["compressedLengths.Array"])
+                .Zip(ReadFlat(shaderBf["decompressedLengths.Array"]))
+                .Select(p => (p.First, p.Second)).ToList()];
+        }
 
         CompressedBlob = shaderBf["compressedBlob.Array"].AsByteArray;
 
@@ -63,11 +84,30 @@ public class SerializedShader
 
         var compStream = new MemoryStream(CompressedBlob);
 
-        var blobs = new byte[CompDecompLengths.Count][];
-        for (var i = 0; i < CompDecompLengths.Count; i++)
+        List<uint> offsets;
+        List<(uint, uint)> lengths;
+
+        if (PlatformSegments)
         {
-            var offset = Offsets[i];
-            var (compressedLength, decompressedLength) = CompDecompLengths[i];
+            // Unity 6000+: each platform owns its segments and its own entry table, so only
+            // this platform's segments must be handed to the BlobManager.
+            if (platformIndex >= Offsets.Count)
+                return null;
+            offsets = Offsets[platformIndex];
+            lengths = CompDecompLengths[platformIndex];
+        }
+        else
+        {
+            // Legacy: one segment per platform sharing the global entry table in segment 0.
+            offsets = Offsets.SelectMany(o => o).ToList();
+            lengths = CompDecompLengths.SelectMany(l => l).ToList();
+        }
+
+        var blobs = new byte[lengths.Count][];
+        for (var i = 0; i < lengths.Count; i++)
+        {
+            var offset = offsets[i];
+            var (compressedLength, decompressedLength) = lengths[i];
 
             var decompressedBlob = new byte[decompressedLength];
 
