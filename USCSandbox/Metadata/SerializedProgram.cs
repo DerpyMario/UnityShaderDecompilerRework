@@ -12,39 +12,55 @@ public class SerializedProgram
         Name = fieldName;
         if (!program["m_PlayerSubPrograms"].IsDummy)
         {
+            // Unity 6000+ groups both of these arrays per hardware tier; flatten the groups so
+            // subprogram infos keep pairing with their parameter blob indices. Pre-6000 files
+            // have plain 1D arrays here.
+            var subProgramGroups = SerializedMetadataHelpers.GetArrayGroups(program["m_PlayerSubPrograms.Array"]);
+            var parameterBlobGroups = SerializedMetadataHelpers.GetArrayGroups(program["m_ParameterBlobIndices.Array"]);
+
             uint[]? parameterBlobIndicesArr;
-            var parameterBlobIndices = program["m_ParameterBlobIndices.Array"];
-            if (parameterBlobIndices.Children.Count > 0)
+            if (parameterBlobGroups != null)
             {
-                parameterBlobIndicesArr = SerializedMetadataHelpers.GetArrayFirstValue(parameterBlobIndices)
+                parameterBlobIndicesArr = parameterBlobGroups
+                    .SelectMany(g => g)
                     .Select(i => i.AsUInt)
                     .ToArray();
             }
             else
             {
-                parameterBlobIndicesArr = null;
-            }
-
-            var subProgramInfos = program["m_PlayerSubPrograms.Array"];
-            if (subProgramInfos.Children.Count > 0)
-            {
-                if (parameterBlobIndicesArr is not null)
+                var parameterBlobIndices = program["m_ParameterBlobIndices.Array"];
+                if (parameterBlobIndices.Children.Count > 0)
                 {
-                    SubProgramInfos = SerializedMetadataHelpers.GetArrayFirstValue(subProgramInfos)
-                        .Select((i, idx) => new SerializedSubProgram(i, nameTable, parameterBlobIndicesArr[idx]))
-                        .ToList();
+                    parameterBlobIndicesArr = SerializedMetadataHelpers.GetArrayFirstValue(parameterBlobIndices)
+                        .Select(i => i.AsUInt)
+                        .ToArray();
                 }
                 else
                 {
-                    SubProgramInfos = SerializedMetadataHelpers.GetArrayFirstValue(subProgramInfos)
-                        .Select((i, idx) => new SerializedSubProgram(i, nameTable, uint.MaxValue))
-                        .ToList();
+                    parameterBlobIndicesArr = null;
                 }
+            }
+
+            IEnumerable<AssetTypeValueField> subProgramFields;
+            if (subProgramGroups != null)
+            {
+                subProgramFields = subProgramGroups.SelectMany(g => g);
             }
             else
             {
-                SubProgramInfos = [];
+                var subProgramInfos = program["m_PlayerSubPrograms.Array"];
+                subProgramFields = subProgramInfos.Children.Count > 0
+                    ? SerializedMetadataHelpers.GetArrayFirstValue(subProgramInfos).Cast<AssetTypeValueField>()
+                    : [];
             }
+
+            SubProgramInfos = subProgramFields
+                .Select((i, idx) => new SerializedSubProgram(
+                    i, nameTable,
+                    parameterBlobIndicesArr != null && idx < parameterBlobIndicesArr.Length
+                        ? parameterBlobIndicesArr[idx]
+                        : uint.MaxValue))
+                .ToList();
         }
         else
         {
@@ -55,7 +71,7 @@ public class SerializedProgram
 
         if (!program["m_CommonParameters"].IsDummy)
         {
-            
+
             CommonParams = new SerializedProgramParameters(program["m_CommonParameters"], nameTable);
         }
     }
